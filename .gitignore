@@ -1,0 +1,6 @@
+transfer/
+inbox/
+__pycache__/
+*.pyc
+*.pyo
+.env

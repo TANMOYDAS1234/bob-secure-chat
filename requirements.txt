@@ -1,0 +1,10 @@
+flask
+flask-cors
+pycryptodome
+requests
+qiskit
+qiskit-aer
+scikit-learn
+numpy
+scipy
+gunicorn

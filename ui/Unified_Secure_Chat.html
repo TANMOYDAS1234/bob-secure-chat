@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Secure Chat Terminal</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&display=swap" rel="stylesheet">
+<style>
+:root{--background:217 32% 8%;--foreground:210 40% 98%;--card:217 32% 14%;--card-foreground:210 40% 98%;--primary:210 100% 60%;--primary-foreground:217 32% 8%;--secondary:217 32% 20%;--secondary-foreground:210 40% 98%;--muted:217 32% 20%;--muted-foreground:215 20.2% 60%;--border:217 32% 20%;--ring:210 100% 60%;--radius:0.5rem}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:hsl(var(--background));color:hsl(var(--foreground));display:flex;align-items:center;justify-content:center;min-height:100dvh;padding:20px;overflow:hidden}
+@media(max-width:600px){body{padding:0;align-items:stretch}}
+#loader{position:fixed;inset:0;background:#000;z-index:9999;display:flex;align-items:center;justify-content:center;transition:opacity .8s ease}
+#loader.hide{opacity:0;pointer-events:none}
+#loader-video{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}
+#bg-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;display:none;filter:blur(18px) brightness(0.45);transform:scale(1.05)}
+#recv-overlay{position:fixed;inset:0;z-index:10;display:none;align-items:center;justify-content:center;flex-direction:column;gap:28px;background:rgba(0,0,0,0.55);backdrop-filter:blur(8px)}
+#recv-ring{width:120px;height:120px;border-radius:50%;border:3px solid rgba(168,85,247,0.3);display:flex;align-items:center;justify-content:center;position:relative;animation:ringPulse 1.2s ease-in-out infinite}
+#recv-ring::before{content:'';position:absolute;inset:-12px;border-radius:50%;border:2px solid rgba(168,85,247,0.15);animation:ringPulse 1.2s ease-in-out infinite .3s}
+#recv-ring::after{content:'';position:absolute;inset:-24px;border-radius:50%;border:1px solid rgba(168,85,247,0.08);animation:ringPulse 1.2s ease-in-out infinite .6s}
+#recv-icon{font-size:42px;animation:iconFloat 1.2s ease-in-out infinite alternate}
+#recv-label{font-family:'Cinzel Decorative',serif;font-size:clamp(18px,2.2vw,28px);color:#f0e6ff;letter-spacing:.25em;text-shadow:0 0 30px rgba(168,85,247,1),0 0 60px rgba(124,58,237,0.7);animation:textGlow 1.5s ease-in-out infinite alternate;font-weight:700}
+#recv-sub{font-family:'Inter',sans-serif;font-size:13px;color:rgba(200,180,255,0.7);letter-spacing:.2em;text-transform:uppercase;margin-top:-8px}
+@keyframes ringPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.08);opacity:0.6}}
+@keyframes iconFloat{from{transform:translateY(0) scale(1)}to{transform:translateY(-8px) scale(1.1)}}
+@keyframes textGlow{from{text-shadow:0 0 10px rgba(168,85,247,0.4)}to{text-shadow:0 0 30px rgba(168,85,247,1),0 0 60px rgba(124,58,237,0.6)}}
+@keyframes overlayFadeIn{from{opacity:0}to{opacity:1}}
+@keyframes overlayFadeOut{from{opacity:1}to{opacity:0}}
+.app{width:100%;max-width:900px;height:700px;background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:16px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);position:relative;z-index:2;transition:filter .5s ease}
+@media(max-width:600px){.app{height:100dvh;max-width:100%;border-radius:0;border-left:none;border-right:none}}
+.header{padding:clamp(10px,2vw,16px) clamp(12px,3vw,20px);border-bottom:1px solid hsl(var(--border));display:flex;justify-content:space-between;align-items:center;background:hsl(var(--card))}
+.header-left{display:flex;align-items:center;gap:12px}
+.avatar{width:clamp(32px,5vw,40px);height:clamp(32px,5vw,40px);border-radius:50%;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:14px;position:relative}
+.status-dot{width:10px;height:10px;background:#10b981;border-radius:50%;border:2px solid hsl(var(--card));position:absolute;bottom:0;right:0;animation:pulse-ring 2s infinite}
+.header-info h1{font-size:clamp(13px,2.5vw,16px);font-weight:600;margin-bottom:2px}
+.header-info p{font-size:clamp(10px,1.8vw,12px);color:hsl(var(--muted-foreground))}
+.chat{flex:1;overflow-y:auto;padding:clamp(12px,3vw,20px);display:flex;flex-direction:column;gap:16px;background:linear-gradient(to bottom,hsl(var(--background)),hsl(var(--background)))}
+.msg-wrapper{display:flex;align-items:end;gap:10px;animation:slide-up 0.3s ease-out;position:relative;margin:6px 0}
+.msg-wrapper.sent{justify-content:flex-end}
+.msg-wrapper.recv{justify-content:flex-start}
+.msg-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:12px;flex-shrink:0}
+.msg-content{display:flex;flex-direction:column;gap:4px;max-width:min(70%,520px);position:relative;overflow:visible}
+.msg{padding:12px 16px;border-radius:18px;line-height:1.5;font-size:14px;animation:message-pop 0.3s cubic-bezier(0.34,1.56,0.64,1);word-wrap:break-word;position:relative;box-shadow:0 2px 6px rgba(0,0,0,0.12);transition:transform .15s ease,box-shadow .15s ease;overflow:visible}
+.msg:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,0.18)}
+.sent .msg{background:hsl(var(--primary));color:hsl(var(--primary-foreground));border-radius:18px 18px 6px 18px;margin-left:auto}
+.recv .msg{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:18px 18px 18px 6px}
+.reaction-btn{position:absolute;bottom:-13px;right:-8px;width:26px;height:26px;border-radius:999px;background:hsl(var(--card));border:1.5px solid hsl(var(--border));display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transform:translateY(4px) scale(.8);transition:opacity .15s ease,transform .2s cubic-bezier(0.34,1.56,0.64,1),box-shadow .15s ease;z-index:10;padding:0;box-shadow:0 2px 8px rgba(0,0,0,0.25)}
+.msg:hover .reaction-btn,.reaction-btn:hover{opacity:1;transform:translateY(0) scale(1);box-shadow:0 0 0 2px hsla(var(--primary),0.35),0 4px 12px rgba(0,0,0,0.3)}
+.reaction-btn:active{transform:scale(.92)}
+.reaction-btn svg{opacity:.75;transition:opacity .15s;color:#fff;stroke:#fff}
+.reaction-btn:hover svg{opacity:1}
+.recv .msg .reaction-btn{right:auto;left:-8px}
+.reaction-picker{position:fixed;background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:14px;padding:6px 8px;display:flex;gap:2px;box-shadow:0 8px 32px rgba(0,0,0,0.45),0 0 0 1px rgba(255,255,255,0.04);z-index:10000;animation:pickerIn .18s cubic-bezier(0.34,1.56,0.64,1) forwards;backdrop-filter:blur(16px)}
+@keyframes pickerIn{from{opacity:0;transform:scale(.85) translateY(6px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.reaction-picker button{width:36px;height:36px;border:none;background:transparent;cursor:pointer;font-size:20px;border-radius:10px;transition:background .15s ease,transform .15s cubic-bezier(0.34,1.56,0.64,1);display:flex;align-items:center;justify-content:center;padding:0}
+.reaction-picker button:hover{background:hsl(var(--secondary));transform:scale(1.25)}
+.reaction-picker button:active{transform:scale(1.05)}
+.reactions{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
+.reaction-item{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:34px;height:26px;padding:0 8px;border-radius:999px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.14);font-size:14px;cursor:pointer;transition:all .18s cubic-bezier(0.34,1.56,0.64,1);backdrop-filter:blur(6px);box-shadow:0 1px 4px rgba(0,0,0,0.15)}
+.reaction-item:hover{transform:scale(1.12);background:rgba(255,255,255,0.18);box-shadow:0 0 0 1.5px hsla(var(--primary),0.4),0 4px 10px rgba(0,0,0,0.2)}
+.msg-meta{font-size:11px;opacity:.7;display:flex;gap:6px;align-items:center}
+.sent .msg-meta{justify-content:flex-end}
+.typing-dots{display:inline-flex;align-items:center;gap:6px;padding:10px 14px;border-radius:18px;background:hsl(var(--card));width:fit-content}
+.dot{width:8px;height:8px;background:hsl(var(--muted-foreground));border-radius:50%;display:block;animation:bounce 1.3s infinite ease-in-out}
+.dot:nth-child(2){animation-delay:.2s}
+.dot:nth-child(3){animation-delay:.4s}
+@keyframes bounce{0%,80%,100%{transform:scale(0);opacity:.4}40%{transform:scale(1);opacity:1}}
+.status-bar{font-size:clamp(10px,1.8vw,12px);color:hsl(var(--muted-foreground));padding:6px clamp(12px,3vw,20px);border-top:1px solid hsl(var(--border));background:hsl(var(--card));min-height:32px;display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.controls{border-top:1px solid hsl(var(--border));padding:clamp(10px,2vw,16px);display:flex;gap:10px;background:hsl(var(--card))}
+.input-wrapper{flex:1;position:relative}
+input[type="text"]{width:100%;background:hsl(var(--secondary));border:1px solid hsl(var(--border));color:hsl(var(--foreground));border-radius:24px;padding:clamp(9px,1.5vw,12px) clamp(14px,2.5vw,20px);font-size:clamp(13px,2vw,14px);font-family:inherit;outline:none;transition:all 0.2s}
+input[type="text"]:focus{border-color:hsl(var(--primary));box-shadow:0 0 0 3px hsla(var(--primary),0.1)}
+input[type="text"]::placeholder{color:hsl(var(--muted-foreground))}
+button{background:hsl(var(--primary));border:none;color:hsl(var(--primary-foreground));padding:12px 20px;border-radius:24px;cursor:pointer;font-weight:600;font-size:14px;transition:all 0.2s;font-family:inherit}
+button:hover{opacity:0.9;transform:translateY(-1px)}
+button:active{transform:translateY(0)}
+button:disabled{opacity:0.5;cursor:not-allowed}
+button.secondary{background:hsl(var(--secondary));color:hsl(var(--secondary-foreground));border:1px solid hsl(var(--border))}
+.send-btn{width:40px;height:40px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;min-width:40px}
+@keyframes slide-up{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+@keyframes message-pop{0%{opacity:0;transform:scale(0.95) translateY(10px)}100%{opacity:1;transform:scale(1) translateY(0)}}
+@keyframes pulse-ring{0%{transform:scale(0.8);opacity:1}100%{transform:scale(1.6);opacity:0}}
+.chat::-webkit-scrollbar{width:8px}
+.chat::-webkit-scrollbar-track{background:hsl(var(--background))}
+.chat::-webkit-scrollbar-thumb{background:hsl(var(--border));border-radius:4px}
+.chat::-webkit-scrollbar-thumb:hover{background:hsl(var(--muted))}
+.spinner{width:16px;height:16px;border:2px solid hsl(var(--primary-foreground));border-top-color:transparent;border-radius:50%;animation:spin 0.6s linear infinite;display:inline-block;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+button.loading{pointer-events:none;opacity:0.7}
+@media(max-width:768px){.msg-content{max-width:82%}}
+@media(max-width:480px){.msg-content{max-width:88%}.msg{font-size:14px;padding:10px 13px}.reaction-item{min-width:32px;height:24px;font-size:13px}.reaction-btn{opacity:1;transform:translateY(0) scale(1)}.msg-meta{font-size:10px}.msg-avatar{width:26px;height:26px;font-size:10px}}
+.burst-container{position:absolute;bottom:10px;right:10px;pointer-events:none;z-index:5}
+.burst-emoji{position:absolute;font-size:18px;animation:burstFloat 700ms ease-out forwards;opacity:0}
+@keyframes burstFloat{0%{transform:translate(0,0) scale(.6);opacity:0}20%{opacity:1;transform:translate(var(--x),-10px) scale(1.2)}100%{transform:translate(var(--x),-38px) scale(.9);opacity:0}}
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div id="recv-overlay">
+  <div id="recv-ring"><span id="recv-icon">📡</span></div>
+  <div id="recv-label">Incoming Message</div>
+  <div id="recv-sub">Decrypting Quantum Channel</div>
+</div>
+
+<div class="app">
+<div class="header">
+<div class="header-left">
+<div class="avatar" id="avatar">ST<div class="status-dot"></div></div>
+<div class="header-info">
+<h1 id="terminal-title">Secure Terminal</h1>
+<p id="role">Bidirectional Mode • Active</p>
+</div>
+</div>
+</div>
+<div id="chat" class="chat"></div>
+<div class="status-bar" id="status">Ready to communicate</div>
+<div class="controls">
+<div class="input-wrapper">
+<input type="text" id="msg" placeholder="Type your message..." />
+</div>
+<button onclick="sendMsg()" class="send-btn">
+<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+</button>
+</div>
+</div>
+
+<div id="loader">
+<video id="loader-video" src="/video" autoplay muted playsinline disablepictureinpicture controlslist="nodownload nofullscreen"></video>
+</div>
+
+<script>
+const loader      = document.getElementById('loader');
+const loaderVideo = document.getElementById('loader-video');
+const bgCanvas    = document.getElementById('bg-canvas');
+const chat        = document.getElementById('chat');
+const statusBox   = document.getElementById('status');
+const msgInput    = document.getElementById('msg');
+
+let isTyping = false;
+let typingTimeout;
+let peerName = '';
+let myName   = '';
+let peerUrl  = '';
+let receiverInterval = null;
+let firstMsgReceived = false;
+const recvOverlay = document.getElementById('recv-overlay');
+const appEl = document.querySelector('.app');
+
+// video ends → capture last frame to canvas → blur it → fade out loader (same as Alice)
+loaderVideo.playbackRate = 1.75;
+
+loaderVideo.addEventListener('ended', () => {
+  bgCanvas.width  = loaderVideo.videoWidth  || window.innerWidth;
+  bgCanvas.height = loaderVideo.videoHeight || window.innerHeight;
+  bgCanvas.getContext('2d').drawImage(loaderVideo, 0, 0, bgCanvas.width, bgCanvas.height);
+  bgCanvas.style.display = 'block';
+  loader.classList.add('hide');
+  setTimeout(() => {
+    loader.style.display = 'none';
+    msgInput.focus();
+    startReceiving();
+  }, 800);
+});
+
+loaderVideo.addEventListener('error', () => {
+  loader.classList.add('hide');
+  setTimeout(() => {
+    loader.style.display = 'none';
+    startReceiving();
+  }, 500);
+});
+
+function startReceiving() {
+  if (receiverInterval) return;
+  receiveMsg();
+  receiverInterval = setInterval(receiveMsg, 2000);
+}
+
+fetch('/node_info')
+  .then(r => r.json())
+  .then(data => {
+    myName   = data.name;
+    peerName = myName === 'Alice' ? 'Bob' : 'Alice';
+    peerUrl  = 'http://127.0.0.1:' + (myName === 'Alice' ? '5002' : '5001');
+    fetch('/peer_url').then(r=>r.json()).then(d=>{ peerUrl = d.url; }).catch(()=>{});
+    document.getElementById('terminal-title').textContent = peerName;
+    const av = document.getElementById('avatar');
+    av.childNodes[0].textContent = peerName.charAt(0);
+  })
+  .catch(() => {});
+
+function checkPeerStatus() {
+  fetch('/peer_status')
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('role').textContent = data.online ? 'Online • Active' : 'Offline';
+      document.querySelector('.status-dot').style.background = data.online ? '#10b981' : '#ef4444';
+    })
+    .catch(() => {});
+}
+checkPeerStatus();
+setInterval(checkPeerStatus, 2000);
+
+function add(text, type, msgId) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'msg-wrapper ' + type;
+  if (msgId) wrapper.dataset.msgId = msgId;
+  wrapper.dataset.msgText = text;
+
+  if (type === 'recv') {
+    const av = document.createElement('div');
+    av.className = 'msg-avatar';
+    av.textContent = peerName.charAt(0) || 'R';
+    wrapper.appendChild(av);
+  }
+
+  const content = document.createElement('div');
+  content.className = 'msg-content';
+
+  const msgEl = document.createElement('div');
+  msgEl.className = 'msg';
+  msgEl.textContent = text;
+
+  const reactionBtn = document.createElement('button');
+  reactionBtn.className = 'reaction-btn';
+  reactionBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/><path d="M8 15h.01"/></svg>';
+  reactionBtn.onclick = (e) => {
+    e.stopPropagation();
+    document.querySelectorAll('.reaction-picker').forEach(p => p.remove());
+    const picker = document.createElement('div');
+    picker.className = 'reaction-picker';
+    const rect = reactionBtn.getBoundingClientRect();
+    picker.style.left = (type === 'sent' ? rect.right - 380 : rect.right) + 'px';
+    picker.style.top  = rect.top + 'px';
+    ['👍','❤️','😂','😮','😢','🔥','💯','🎉'].forEach(emoji => {
+      const btn = document.createElement('button');
+      btn.textContent = emoji;
+      btn.onclick = (e) => { e.stopPropagation(); addReaction(wrapper, emoji, text); picker.remove(); };
+      picker.appendChild(btn);
+    });
+    document.body.appendChild(picker);
+    setTimeout(() => {
+      const close = (e) => { if (!picker.contains(e.target) && e.target !== reactionBtn) { picker.remove(); document.removeEventListener('click', close); } };
+      document.addEventListener('click', close);
+    }, 0);
+  };
+  msgEl.appendChild(reactionBtn);
+  content.appendChild(msgEl);
+
+  const meta = document.createElement('div');
+  meta.className = 'msg-meta';
+  const time = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+  meta.innerHTML = type === 'sent'
+    ? time + ' <span class="tick-mark" style="color:hsl(var(--muted-foreground))">✓</span>'
+    : time;
+  content.appendChild(meta);
+
+  wrapper.appendChild(content);
+  chat.appendChild(wrapper);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+async function addReaction(wrapperEl, emoji, msgText) {
+  const msgEl = wrapperEl.querySelector('.msg');
+  let reactions = msgEl.querySelector('.reactions');
+  if (!reactions) { reactions = document.createElement('div'); reactions.className = 'reactions'; msgEl.appendChild(reactions); }
+  await fetch('/add_reaction', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msgText, emoji, user:myName})});
+  await fetch(peerUrl+'/add_reaction', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msgText, emoji, user:myName})}).catch(()=>{});
+  updateReactionDisplay(wrapperEl, {[myName]:emoji, [peerName]:reactions.dataset.peerEmoji});
+  let burst = msgEl.querySelector('.burst-container');
+  if (!burst) { burst = document.createElement('div'); burst.className = 'burst-container'; msgEl.appendChild(burst); }
+  for (let i = 0; i < 6; i++) {
+    const e = document.createElement('span');
+    e.className = 'burst-emoji'; e.textContent = emoji;
+    e.style.setProperty('--x', (Math.random()*40-20)+'px');
+    burst.appendChild(e);
+    setTimeout(() => e.remove(), 700);
+  }
+}
+
+function updateReactionDisplay(wrapperEl, reactionsObj) {
+  const msgEl = wrapperEl.querySelector('.msg');
+  let reactions = msgEl.querySelector('.reactions');
+  if (!reactions) { reactions = document.createElement('div'); reactions.className = 'reactions'; msgEl.appendChild(reactions); }
+  reactions.innerHTML = '';
+  reactions.dataset.peerEmoji = reactionsObj[peerName] || '';
+  let hasReactions = false;
+  Object.entries(reactionsObj).forEach(([user, emoji]) => {
+    if (!emoji) return;
+    hasReactions = true;
+    const item = document.createElement('span');
+    item.className = 'reaction-item'; item.textContent = emoji; item.dataset.user = user;
+    if (user === myName) {
+      item.style.cursor = 'pointer';
+      item.onclick = async () => {
+        const msgText = wrapperEl.dataset.msgText;
+        await fetch('/remove_reaction', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msgText, user:myName})});
+        await fetch(peerUrl+'/remove_reaction', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msgText, user:myName})}).catch(()=>{});
+        delete reactionsObj[myName];
+        updateReactionDisplay(wrapperEl, reactionsObj);
+      };
+    }
+    reactions.appendChild(item);
+  });
+  if (!hasReactions && reactions.parentNode) reactions.remove();
+}
+
+function showTyping() {
+  if (document.getElementById('typing-indicator')) return;
+  const wrapper = document.createElement('div');
+  wrapper.className = 'msg-wrapper recv'; wrapper.id = 'typing-indicator';
+  const av = document.createElement('div');
+  av.className = 'msg-avatar'; av.textContent = peerName.charAt(0) || 'R';
+  wrapper.appendChild(av);
+  const dots = document.createElement('div');
+  dots.className = 'typing-dots';
+  dots.innerHTML = '<span class="dot"></span><span class="dot"></span><span class="dot"></span>';
+  wrapper.appendChild(dots);
+  chat.appendChild(wrapper);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function hideTyping() {
+  const el = document.getElementById('typing-indicator');
+  if (el) el.remove();
+}
+
+setInterval(() => {
+  fetch('/peer_typing').then(r=>r.json()).then(d => { if(d.typing) showTyping(); else hideTyping(); }).catch(()=>{});
+}, 500);
+
+msgInput.addEventListener('input', () => {
+  if (!isTyping) {
+    isTyping = true;
+    fetch('/notify_typing', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({typing:true})}).catch(()=>{});
+  }
+  clearTimeout(typingTimeout);
+  typingTimeout = setTimeout(() => {
+    isTyping = false;
+    fetch('/notify_typing', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({typing:false})}).catch(()=>{});
+  }, 1000);
+});
+
+msgInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMsg(); });
+
+async function sendMsg() {
+  const val = msgInput.value.trim();
+  if (!val) return;
+  const sendBtn = document.querySelector('.send-btn');
+  const orig = sendBtn.innerHTML;
+  sendBtn.innerHTML = '<span class="spinner"></span>';
+  sendBtn.classList.add('loading');
+  statusBox.textContent = '🔒 Encrypting & transmitting...';
+  try {
+    const r = await fetch('/encrypt', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:val})});
+    const j = await r.json();
+    if (j.status === 'SUCCESS') {
+      add(val, 'sent', j.msg_id);
+      if (j.delivered) {
+        const tick = chat.lastElementChild.querySelector('.tick-mark');
+        if (tick) { tick.innerHTML = '✓✓'; tick.style.color = 'hsl(var(--primary))'; }
+      }
+      statusBox.textContent = '✓ Delivered | Trust: ' + j.trust + ' | Error: ' + j.bit_error;
+      msgInput.value = ''; isTyping = false;
+    } else if (j.status === 'SENT') {
+      add(val, 'sent', j.msg_id);
+      statusBox.textContent = '✓ Sent (peer offline)';
+      msgInput.value = ''; isTyping = false;
+    } else {
+      statusBox.textContent = '✗ Rejected: ' + (j.message || 'unknown');
+    }
+  } catch(e) {
+    statusBox.textContent = '⚠ Server unreachable';
+  } finally {
+    sendBtn.innerHTML = orig;
+    sendBtn.classList.remove('loading');
+  }
+}
+
+async function receiveMsg() {
+  try {
+    const r = await fetch('/decrypt', {method:'POST'});
+    const j = await r.json();
+    if (j.status === 'SUCCESS') {
+      hideTyping();
+      if (!firstMsgReceived) {
+        firstMsgReceived = true;
+        appEl.style.filter = 'blur(8px) brightness(0.35)';
+        recvOverlay.style.display = 'flex';
+        recvOverlay.style.animation = 'overlayFadeIn .4s ease forwards';
+        setTimeout(() => {
+          recvOverlay.style.animation = 'overlayFadeOut .5s ease forwards';
+          setTimeout(() => {
+            recvOverlay.style.display = 'none';
+            recvOverlay.style.animation = '';
+            appEl.style.filter = '';
+            add(j.message, 'recv');
+            statusBox.textContent = '\u2713 Message received';
+            receiveMsg();
+          }, 500);
+        }, 2400);
+      } else {
+        add(j.message, 'recv');
+        statusBox.textContent = '\u2713 Message received';
+        receiveMsg();
+      }
+    } else if (j.status === 'ERROR') {
+      hideTyping();
+      statusBox.textContent = '\u2717 Decryption failed';
+    }
+  } catch(e) {
+    statusBox.textContent = '\u26a0 Receiver offline';
+  }
+}
+
+function checkDeliveryStatus() {
+  fetch('/message_history')
+    .then(r => r.json())
+    .then(data => {
+      data.messages.forEach(msg => {
+        const el = document.querySelector(`[data-msg-id="${msg.id}"]`);
+        if (el && msg.delivered) {
+          const tick = el.querySelector('.tick-mark');
+          if (tick && tick.innerHTML === '✓') { tick.innerHTML = '✓✓'; tick.style.color = 'hsl(var(--primary))'; }
+        }
+      });
+    })
+    .catch(() => {});
+}
+setInterval(checkDeliveryStatus, 3000);
+
+function syncReactions() {
+  if (!peerUrl) return;
+  fetch('/get_reactions')
+    .then(r => r.json())
+    .then(data => {
+      const allMsgs = new Set();
+      document.querySelectorAll('.msg-wrapper[data-msg-text]').forEach(w => allMsgs.add(w.dataset.msgText));
+      const reacted = new Set();
+      data.reactions.forEach(item => {
+        reacted.add(item.text);
+        const w = Array.from(document.querySelectorAll('.msg-wrapper')).find(w => w.dataset.msgText === item.text);
+        if (w) updateReactionDisplay(w, item.reactions);
+      });
+      allMsgs.forEach(t => {
+        if (!reacted.has(t)) {
+          const w = Array.from(document.querySelectorAll('.msg-wrapper')).find(w => w.dataset.msgText === t);
+          if (w) updateReactionDisplay(w, {});
+        }
+      });
+    })
+    .catch(() => {});
+}
+setInterval(syncReactions, 2000);
+</script>
+</body>
+</html>
