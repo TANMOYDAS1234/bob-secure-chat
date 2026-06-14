@@ -7,6 +7,7 @@ from Crypto.Cipher import AES
 import protocol_core as protocol
 import threading
 import uuid
+import json
 
 MESSAGE_QUEUE = []
 PENDING_MESSAGES = []
@@ -38,7 +39,7 @@ def ensure_dir():
     os.makedirs(INBOX_DIR, exist_ok=True)
 
 
-def send_to_peer(session_id):
+def send_to_peer(session_id, meta=None):
     files = {
         'ciphertext': open(f"{TRANSFER_DIR}/ciphertext.bin", 'rb'),
         'nonce': open(f"{TRANSFER_DIR}/nonce.bin", 'rb'),
@@ -46,6 +47,8 @@ def send_to_peer(session_id):
         'key': open(f"{TRANSFER_DIR}/key.bin", 'rb')
     }
     data = {"session": session_id}
+    if meta:
+        data["meta"] = json.dumps(meta)   # non-key quantum stats for the peer's inspector
     try:
         response = requests.post(PEER_URL, files=files, data=data, timeout=5)
         return response.status_code == 200
@@ -193,6 +196,11 @@ def receive():
         for name, file in request.files.items():
             file.save(os.path.join(msg_dir, f"{name}.bin"))
 
+        meta = request.form.get("meta")
+        if meta:
+            with open(os.path.join(msg_dir, "meta.json"), "w", encoding="utf-8") as f:
+                f.write(meta)
+
         MESSAGE_QUEUE.append(msg_id)
         print(f"[NODE] New encrypted packet queued: {msg_id}")
 
@@ -228,12 +236,17 @@ def encrypt():
         raw_randomness = float(protocol.check_randomness())
         randomness = max(0.0, min(1.0, raw_randomness))
 
+        # 2b. Quantum stats snapshot for the UI inspector (no key material)
+        qmeta = protocol.get_quantum_stats()
+        qmeta["randomness"] = randomness
+
         # ---- STEP A : ask QC for session ----
         resp = requests.post(
             f"{QC_SERVER}/qc_request",
             json={
                 "theta": float(protocol.theta),
                 "randomness": float(randomness),
+                "decoy_state": qmeta.get("decoy_state"),
                 "sender": NODE_NAME,
                 "receiver": PEER_NAME
             },
@@ -253,6 +266,7 @@ def encrypt():
             time.sleep(0.5)
         if not qc_data:
             return jsonify({"status": "ERROR", "message": "Receiver not ready"}), 408
+        qmeta["trust"] = qc_data.get("trust")
 
         # 3. Encryption (UNCHANGED)
         msg_id = str(uuid.uuid4())
@@ -267,7 +281,7 @@ def encrypt():
 
         # 5. Send to peer
         delivered = False
-        transmission_success = send_to_peer(session)
+        transmission_success = send_to_peer(session, meta=qmeta)
         if not transmission_success:
             # Queue message for later delivery
             PENDING_MESSAGES.append({
@@ -275,6 +289,7 @@ def encrypt():
                 "session": session,
                 "trust": qc_data.get("trust"),
                 "bit_error": qc_data.get("bit_error"),
+                "meta": qmeta,
                 "timestamp": time.time()
             })
             MESSAGE_HISTORY.append({"id": msg_id, "delivered": False, "text": message})
@@ -283,7 +298,8 @@ def encrypt():
                 "delivered": False,
                 "msg_id": msg_id,
                 "message": "Queued for delivery",
-                "trust": qc_data.get("trust")
+                "trust": qc_data.get("trust"),
+                "quantum": qmeta
             }), 200
         delivered = True
 
@@ -294,7 +310,8 @@ def encrypt():
             "msg_id": msg_id,
             "message": "Encrypted and delivered",
             "trust": qc_data.get("trust"),
-            "bit_error": qc_data.get("bit_error")
+            "bit_error": qc_data.get("bit_error"),
+            "quantum": qmeta
         }), 200
 
     except Exception as e:
@@ -321,8 +338,18 @@ def decrypt():
         plaintext = cipher.decrypt_and_verify(ciphertext, tag)
 
         message_text = plaintext.decode()
+
+        quantum = None
+        meta_path = os.path.join(msg_dir, "meta.json")
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, "r", encoding="utf-8") as f:
+                    quantum = json.loads(f.read())
+            except Exception:
+                quantum = None
+
         MESSAGE_HISTORY.append({"text": message_text, "delivered": True})
-        return jsonify({"status": "SUCCESS", "message": message_text})
+        return jsonify({"status": "SUCCESS", "message": message_text, "quantum": quantum})
 
     except FileNotFoundError:
         return jsonify({"status": "EMPTY"})
@@ -345,7 +372,7 @@ def heartbeat():
                         print(f"[NODE] Peer is online, attempting delivery")
                         for msg in PENDING_MESSAGES[:]:
                             print(f"[NODE] Sending msg_id: {msg['msg_id']}")
-                            if send_to_peer(msg["session"]):
+                            if send_to_peer(msg["session"], meta=msg.get("meta")):
                                 PENDING_MESSAGES.remove(msg)
                                 # Update delivery status
                                 for history_msg in MESSAGE_HISTORY:

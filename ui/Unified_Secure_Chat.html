@@ -96,6 +96,36 @@ button.loading{pointer-events:none;opacity:0.7}
 .burst-container{position:absolute;bottom:10px;right:10px;pointer-events:none;z-index:5}
 .burst-emoji{position:absolute;font-size:18px;animation:burstFloat 700ms ease-out forwards;opacity:0}
 @keyframes burstFloat{0%{transform:translate(0,0) scale(.6);opacity:0}20%{opacity:1;transform:translate(var(--x),-10px) scale(1.2)}100%{transform:translate(var(--x),-38px) scale(.9);opacity:0}}
+/* ===== Quantum Channel Inspector ===== */
+#qbtn{background:hsl(var(--secondary));border:1px solid hsl(var(--border));color:hsl(var(--foreground));padding:7px 12px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .2s}
+#qbtn:hover{border-color:hsl(var(--primary));transform:translateY(-1px)}
+#qpanel{position:absolute;top:0;right:0;height:100%;width:min(340px,88%);background:hsl(var(--card));border-left:1px solid hsl(var(--border));box-shadow:-14px 0 44px rgba(0,0,0,0.45);transform:translateX(106%);transition:transform .32s cubic-bezier(.4,0,.2,1);z-index:60;display:flex;flex-direction:column;overflow:hidden}
+#qpanel.open{transform:translateX(0)}
+.qp-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid hsl(var(--border))}
+.qp-title{font-size:13px;font-weight:700;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+.qp-close{background:none;border:none;color:hsl(var(--muted-foreground));font-size:22px;line-height:1;cursor:pointer;width:30px;height:30px;padding:0;border-radius:8px}
+.qp-close:hover{background:hsl(var(--secondary));color:#fff}
+.qp-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:14px}
+.qp-empty{color:hsl(var(--muted-foreground));font-size:12px;text-align:center;padding:36px 12px;line-height:1.6}
+.qp-card{background:hsl(var(--secondary));border:1px solid hsl(var(--border));border-radius:12px;padding:14px}
+.qp-label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:hsl(var(--muted-foreground));margin-bottom:8px}
+.qp-bloch{display:block;margin:0 auto 4px}
+.qp-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;margin:5px 0}
+.qp-row b{font-family:ui-monospace,'Cascadia Code',monospace;font-weight:600}
+.qp-bar{height:8px;border-radius:6px;background:rgba(255,255,255,0.08);overflow:hidden;margin-top:6px}
+.qp-bar>span{display:block;height:100%;border-radius:6px;transition:width .5s ease}
+.qp-trust>span{background:linear-gradient(90deg,#3b82f6,#a855f7)}
+.qp-qber>span{background:linear-gradient(90deg,#10b981,#f59e0b,#ef4444)}
+.qp-ent>span{background:linear-gradient(90deg,#a855f7,#3b82f6)}
+.qp-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.05em}
+.pill-signal{background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.3)}
+.pill-decoy{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}
+.pill-vacuum{background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}
+.qp-dm{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+.qp-dm div{aspect-ratio:2/1;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:ui-monospace,monospace;font-size:12px;color:#fff;border:1px solid rgba(255,255,255,.08)}
+.qp-fp{font-family:ui-monospace,monospace;font-size:12px;color:hsl(var(--primary));word-break:break-all;letter-spacing:.04em}
+.msg-badge{cursor:pointer;font-size:11px;opacity:.6;display:inline-flex;align-items:center;transition:opacity .15s,transform .15s}
+.msg-badge:hover{opacity:1;transform:scale(1.15)}
 </style>
 </head>
 <body>
@@ -117,6 +147,7 @@ button.loading{pointer-events:none;opacity:0.7}
 <p id="role">Bidirectional Mode • Active</p>
 </div>
 </div>
+<button id="qbtn" type="button" onclick="toggleQPanel()">🛡 Quantum</button>
 </div>
 <div id="chat" class="chat"></div>
 <div class="status-bar" id="status">Ready to communicate</div>
@@ -127,6 +158,13 @@ button.loading{pointer-events:none;opacity:0.7}
 <button onclick="sendMsg()" class="send-btn">
 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
 </button>
+</div>
+<div id="qpanel">
+<div class="qp-head">
+<div class="qp-title">🛡 Quantum Channel</div>
+<button class="qp-close" type="button" onclick="toggleQPanel()">×</button>
+</div>
+<div class="qp-body" id="qp-body"><div class="qp-empty">Send or receive a message to inspect the quantum channel that secured it.</div></div>
 </div>
 </div>
 
@@ -237,7 +275,69 @@ function checkPeerStatus() {
 checkPeerStatus();
 setInterval(checkPeerStatus, 2000);
 
-function add(text, type, msgId) {
+// ===== Quantum Channel Inspector =====
+let lastQuantum=null;
+function qPanelOpen(){ return document.getElementById('qpanel').classList.contains('open'); }
+function toggleQPanel(){ const p=document.getElementById('qpanel'); p.classList.toggle('open'); if(p.classList.contains('open')) renderInspector(lastQuantum); }
+function openInspector(q){ lastQuantum=q||lastQuantum; renderInspector(lastQuantum); document.getElementById('qpanel').classList.add('open'); }
+function showQuantum(q){ if(!q) return; lastQuantum=q; if(qPanelOpen()) renderInspector(q); }
+function qfmt(x,d){ d=(d==null)?3:d; const n=parseFloat(x); return (x==null||isNaN(n))?'—':n.toFixed(d); }
+
+function renderInspector(q){
+    const body=document.getElementById('qp-body');
+    if(!q){ body.innerHTML='<div class="qp-empty">Send or receive a message to inspect the quantum channel that secured it.</div>'; return; }
+    const trust=parseFloat(q.trust), qber=parseFloat(q.bit_error), rnd=parseFloat(q.randomness);
+    const decoy=(q.decoy_state||'signal').toLowerCase();
+    const dm=q.density_matrix||[[0.5,0],[0,0.5]];
+    const trustPct=isNaN(trust)?0:Math.max(0,Math.min(100,trust*100));
+    const qberPct=isNaN(qber)?0:Math.max(0,Math.min(100,qber*100));
+    const entPct=isNaN(rnd)?0:Math.max(4,Math.min(100,(rnd*200)+50));
+    body.innerHTML=
+      '<div class="qp-card"><div class="qp-label">Qubit State · Bloch sphere</div>'+
+        '<canvas id="qp-bloch" class="qp-bloch" width="230" height="180"></canvas>'+
+        '<div class="qp-row"><span>Phase θ</span><b>'+qfmt(q.theta,3)+' rad</b></div>'+
+        '<div class="qp-row"><span>Basis</span><b>'+(q.basis||'—')+'</b></div></div>'+
+      '<div class="qp-card"><div class="qp-label">Channel Trust</div>'+
+        '<div class="qp-row"><span>Trust score</span><b>'+qfmt(trust,3)+'</b></div>'+
+        '<div class="qp-bar qp-trust"><span style="width:'+trustPct+'%"></span></div>'+
+        '<div class="qp-label" style="margin-top:14px">QBER · bit-error rate</div>'+
+        '<div class="qp-row"><span>Error rate</span><b>'+qfmt(qber,3)+'</b></div>'+
+        '<div class="qp-bar qp-qber"><span style="width:'+qberPct+'%"></span></div></div>'+
+      '<div class="qp-card"><div class="qp-label">Decoy State · photon statistics</div>'+
+        '<div class="qp-row"><span class="qp-pill pill-'+decoy+'">'+decoy.toUpperCase()+'</span><b>μ = '+(q.mu==null?'—':q.mu)+'</b></div>'+
+        '<div class="qp-row"><span>Shots</span><b>'+(q.shots==null?'—':q.shots)+'</b></div>'+
+        '<div class="qp-row"><span>Phase error</span><b>'+qfmt(q.phase_error,3)+'</b></div></div>'+
+      '<div class="qp-card"><div class="qp-label">Density Matrix ρ</div><div class="qp-dm">'+
+        [].concat.apply([],dm).map(function(v){return '<div style="background:rgba(168,85,247,'+(0.12+Math.abs(v)*0.7)+')">'+qfmt(v,2)+'</div>';}).join('')+
+        '</div></div>'+
+      '<div class="qp-card"><div class="qp-label">Key Randomness · IsolationForest</div>'+
+        '<div class="qp-row"><span>Entropy score</span><b>'+qfmt(rnd,3)+'</b></div>'+
+        '<div class="qp-bar qp-ent"><span style="width:'+entPct+'%"></span></div></div>'+
+      '<div class="qp-card"><div class="qp-label">Privacy Amplification</div>'+
+        '<div class="qp-row"><span>Raw → Final</span><b>'+(q.raw_key_bits||256)+' → '+(q.final_key_bits||256)+' bits</b></div>'+
+        '<div class="qp-label" style="margin-top:12px">Key fingerprint · SHA3</div>'+
+        '<div class="qp-fp">'+(q.key_fingerprint||'—')+'</div></div>';
+    const c=document.getElementById('qp-bloch'); if(c) drawBloch(c,q.theta);
+}
+
+function drawBloch(c,theta){
+    const ctx=c.getContext('2d'), w=c.width, h=c.height; ctx.clearRect(0,0,w,h);
+    const cx=w/2, cy=h/2, R=Math.min(w,h)/2-20;
+    ctx.lineWidth=1.2;
+    ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.beginPath(); ctx.arc(cx,cy,R,0,2*Math.PI); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.beginPath(); ctx.ellipse(cx,cy,R,R*0.32,0,0,2*Math.PI); ctx.stroke();
+    ctx.strokeStyle='rgba(255,255,255,0.10)'; ctx.beginPath(); ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font='10px Inter,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('|0⟩',cx,cy-R-6); ctx.fillText('|1⟩',cx,cy+R+13);
+    const t=(typeof theta==='number')?theta:0;
+    const vx=cx+R*Math.cos(t), vy=cy+R*0.32*Math.sin(t);
+    const g=ctx.createLinearGradient(cx,cy,vx,vy); g.addColorStop(0,'#3b82f6'); g.addColorStop(1,'#a855f7');
+    ctx.strokeStyle=g; ctx.lineWidth=2.6; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(vx,vy); ctx.stroke();
+    ctx.fillStyle='#a855f7'; ctx.beginPath(); ctx.arc(vx,vy,5,0,2*Math.PI); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(cx,cy,2.5,0,2*Math.PI); ctx.fill();
+}
+
+function add(text, type, msgId, quantum) {
   const wrapper = document.createElement('div');
   wrapper.className = 'msg-wrapper ' + type;
   if (msgId) wrapper.dataset.msgId = msgId;
@@ -289,6 +389,15 @@ function add(text, type, msgId) {
   meta.innerHTML = type === 'sent'
     ? time + ' <span class="tick-mark" style="color:hsl(var(--muted-foreground))">✓</span>'
     : time;
+  if (quantum) {
+    const badge = document.createElement('span');
+    badge.className = 'msg-badge';
+    badge.title = 'Quantum channel details';
+    badge.textContent = '🛡';
+    badge.onclick = (e) => { e.stopPropagation(); openInspector(quantum); };
+    meta.appendChild(document.createTextNode(' '));
+    meta.appendChild(badge);
+  }
   content.appendChild(meta);
 
   wrapper.appendChild(content);
@@ -391,7 +500,8 @@ async function sendMsg() {
     const r = await fetch('/encrypt', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:val})});
     const j = await r.json();
     if (j.status === 'SUCCESS') {
-      add(val, 'sent', j.msg_id);
+      add(val, 'sent', j.msg_id, j.quantum);
+      showQuantum(j.quantum);
       if (j.delivered) {
         const tick = chat.lastElementChild.querySelector('.tick-mark');
         if (tick) { tick.innerHTML = '✓✓'; tick.style.color = 'hsl(var(--primary))'; }
@@ -399,7 +509,8 @@ async function sendMsg() {
       statusBox.textContent = '✓ Delivered | Trust: ' + j.trust + ' | Error: ' + j.bit_error;
       msgInput.value = ''; isTyping = false;
     } else if (j.status === 'SENT') {
-      add(val, 'sent', j.msg_id);
+      add(val, 'sent', j.msg_id, j.quantum);
+      showQuantum(j.quantum);
       statusBox.textContent = '✓ Sent (peer offline)';
       msgInput.value = ''; isTyping = false;
     } else {
@@ -430,13 +541,15 @@ async function receiveMsg() {
             recvOverlay.style.display = 'none';
             recvOverlay.style.animation = '';
             appEl.style.filter = '';
-            add(j.message, 'recv');
+            add(j.message, 'recv', null, j.quantum);
+            showQuantum(j.quantum);
             statusBox.textContent = '\u2713 Message received';
             receiveMsg();
           }, 500);
         }, 2400);
       } else {
-        add(j.message, 'recv');
+        add(j.message, 'recv', null, j.quantum);
+        showQuantum(j.quantum);
         statusBox.textContent = '\u2713 Message received';
         receiveMsg();
       }

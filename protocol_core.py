@@ -21,6 +21,13 @@ phase_error = None
 density_matrix = None
 decoy_log = []
 
+# Per-session quantum metadata (exposed to the UI)
+decoy_state = None
+mu = None
+shots = None
+basis = None
+randomness_score = None
+
 # Encryption artifacts
 last_ciphertext = None
 last_nonce = None
@@ -34,6 +41,7 @@ simulator = AerSimulator()
 # -------------------------------------------------
 def generate_hybrid_key():
     global Q, S, final_key, theta, z, bit_error, phase_error, density_matrix
+    global decoy_state, mu, shots, basis
 
     # -------------------------------
     # Decoy State Selection
@@ -48,6 +56,7 @@ def generate_hybrid_key():
         ["signal", "decoy", "vacuum"],
         p=[0.6, 0.3, 0.1]
     )
+    decoy_state = str(state)
 
     mu = decoy_states[state]["mu"]
     shots = decoy_states[state]["shots"]
@@ -136,6 +145,32 @@ def generate_hybrid_key():
     print("Bit Error Rate    :", bit_error)
     print("Phase Error       :", phase_error)
     print("Density Matrix:\n", density_matrix, "\n")
+
+
+# -------------------------------------------------
+# QUANTUM STATS SNAPSHOT (for UI visualisation)
+# -------------------------------------------------
+def get_quantum_stats():
+    """Snapshot of the last hybrid-key session. Contains NO key material —
+    only metrics safe to show in the UI (key is identified by a short hash)."""
+    return {
+        "theta": float(theta) if theta is not None else None,
+        "z_real": float(z.real) if z is not None else None,
+        "z_imag": float(z.imag) if z is not None else None,
+        "bit_error": float(bit_error) if bit_error is not None else None,
+        "phase_error": float(phase_error) if phase_error is not None else None,
+        "decoy_state": decoy_state,
+        "mu": float(mu) if mu is not None else None,
+        "shots": int(shots) if shots is not None else None,
+        "basis": str(basis) if basis is not None else None,
+        "randomness": float(randomness_score) if randomness_score is not None else None,
+        "density_matrix": density_matrix.tolist() if density_matrix is not None else None,
+        "raw_key_bits": 256,
+        "final_key_bits": (len(final_key) * 8) if final_key is not None else None,
+        "key_fingerprint": sha3_256(final_key).hexdigest()[:16] if final_key is not None else None,
+    }
+
+
 # -------------------------------------------------
 # PRIVACY AMPLIFICATION
 # -------------------------------------------------
@@ -255,6 +290,7 @@ def select_decoy_state():
 # RANDOMNESS CHECK
 # -------------------------------------------------
 def check_randomness():
+    global randomness_score
     if final_key is None:
         print("\nGenerate a key first.\n")
         return 0.0
@@ -263,6 +299,7 @@ def check_randomness():
     clf = IsolationForest(contamination=0.5)
     clf.fit(data)
     score = clf.decision_function(data).mean()
+    randomness_score = float(score)
 
     print("\nRandomness Score:", score)
     print("Higher score ⇒ stronger randomness\n")
