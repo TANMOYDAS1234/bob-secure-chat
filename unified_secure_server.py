@@ -13,6 +13,7 @@ MESSAGE_QUEUE = []
 PENDING_MESSAGES = []
 MESSAGE_HISTORY = []
 TYPING_STATUS = False
+REACTIONS = {}          # msg_id -> { user: emoji }  (shared id, set on both nodes)
 # ==============================
 # CONFIGURATION (ALICE)
 # ==============================
@@ -39,7 +40,7 @@ def ensure_dir():
     os.makedirs(INBOX_DIR, exist_ok=True)
 
 
-def send_to_peer(session_id, meta=None):
+def send_to_peer(session_id, meta=None, msg_id=None):
     files = {
         'ciphertext': open(f"{TRANSFER_DIR}/ciphertext.bin", 'rb'),
         'nonce': open(f"{TRANSFER_DIR}/nonce.bin", 'rb'),
@@ -49,6 +50,8 @@ def send_to_peer(session_id, meta=None):
     data = {"session": session_id}
     if meta:
         data["meta"] = json.dumps(meta)   # non-key quantum stats for the peer's inspector
+    if msg_id:
+        data["msg_id"] = msg_id           # shared message id, so reactions match on both sides
     try:
         response = requests.post(PEER_URL, files=files, data=data, timeout=5)
         return response.status_code == 200
@@ -127,40 +130,44 @@ def delivery_status():
 def message_history():
     return jsonify({"messages": MESSAGE_HISTORY})
 
+def _relay_reaction(path, payload):
+    """Relay a reaction to the peer server-side (reliable, like message delivery)."""
+    try:
+        requests.post(PEER_URL.replace('/receive', path), json=payload, timeout=2)
+    except Exception:
+        pass
+
 @app.route("/add_reaction", methods=["POST"])
 def add_reaction():
-    data = request.get_json()
-    msg_text = data.get("message")
+    data = request.get_json(force=True)
+    msg_id = data.get("msg_id")
     emoji = data.get("emoji")
     user = data.get("user")
-    if msg_text and emoji and user:
-        for msg in MESSAGE_HISTORY:
-            if msg.get("text") == msg_text:
-                if "reactions" not in msg:
-                    msg["reactions"] = {}
-                msg["reactions"][user] = emoji
-                return jsonify({"status": "ok"})
-    return jsonify({"status": "error"})
+    if not (msg_id and emoji and user):
+        return jsonify({"status": "error"}), 400
+    REACTIONS.setdefault(msg_id, {})[user] = emoji
+    if data.get("relay", True):
+        _relay_reaction('/add_reaction', {"msg_id": msg_id, "emoji": emoji, "user": user, "relay": False})
+    return jsonify({"status": "ok"})
 
 @app.route("/remove_reaction", methods=["POST"])
 def remove_reaction():
-    data = request.get_json()
-    msg_text = data.get("message")
+    data = request.get_json(force=True)
+    msg_id = data.get("msg_id")
     user = data.get("user")
-    if msg_text and user:
-        for msg in MESSAGE_HISTORY:
-            if msg.get("text") == msg_text and "reactions" in msg:
-                msg["reactions"].pop(user, None)
-                return jsonify({"status": "ok"})
-    return jsonify({"status": "error"})
+    if not (msg_id and user):
+        return jsonify({"status": "error"}), 400
+    if msg_id in REACTIONS:
+        REACTIONS[msg_id].pop(user, None)
+        if not REACTIONS[msg_id]:
+            REACTIONS.pop(msg_id, None)
+    if data.get("relay", True):
+        _relay_reaction('/remove_reaction', {"msg_id": msg_id, "user": user, "relay": False})
+    return jsonify({"status": "ok"})
 
 @app.route("/get_reactions", methods=["GET"])
 def get_reactions():
-    reactions_data = []
-    for msg in MESSAGE_HISTORY:
-        if "reactions" in msg and msg["reactions"]:
-            reactions_data.append({"text": msg.get("text"), "reactions": msg["reactions"]})
-    return jsonify({"reactions": reactions_data})
+    return jsonify({"reactions": [{"msg_id": k, "reactions": v} for k, v in list(REACTIONS.items()) if v]})
 
 @app.route("/notify_typing", methods=["POST"])
 def notify_typing():
@@ -200,6 +207,11 @@ def receive():
         if meta:
             with open(os.path.join(msg_dir, "meta.json"), "w", encoding="utf-8") as f:
                 f.write(meta)
+
+        src_id = request.form.get("msg_id")
+        if src_id:
+            with open(os.path.join(msg_dir, "srcid.txt"), "w", encoding="utf-8") as f:
+                f.write(src_id)
 
         MESSAGE_QUEUE.append(msg_id)
         print(f"[NODE] New encrypted packet queued: {msg_id}")
@@ -281,7 +293,7 @@ def encrypt():
 
         # 5. Send to peer
         delivered = False
-        transmission_success = send_to_peer(session, meta=qmeta)
+        transmission_success = send_to_peer(session, meta=qmeta, msg_id=msg_id)
         if not transmission_success:
             # Queue message for later delivery
             PENDING_MESSAGES.append({
@@ -348,8 +360,17 @@ def decrypt():
             except Exception:
                 quantum = None
 
-        MESSAGE_HISTORY.append({"text": message_text, "delivered": True})
-        return jsonify({"status": "SUCCESS", "message": message_text, "quantum": quantum})
+        src_id = None
+        srcid_path = os.path.join(msg_dir, "srcid.txt")
+        if os.path.exists(srcid_path):
+            try:
+                with open(srcid_path, "r", encoding="utf-8") as f:
+                    src_id = f.read().strip()
+            except Exception:
+                src_id = None
+
+        MESSAGE_HISTORY.append({"id": src_id, "text": message_text, "delivered": True})
+        return jsonify({"status": "SUCCESS", "message": message_text, "quantum": quantum, "msg_id": src_id})
 
     except FileNotFoundError:
         return jsonify({"status": "EMPTY"})
@@ -372,7 +393,7 @@ def heartbeat():
                         print(f"[NODE] Peer is online, attempting delivery")
                         for msg in PENDING_MESSAGES[:]:
                             print(f"[NODE] Sending msg_id: {msg['msg_id']}")
-                            if send_to_peer(msg["session"], meta=msg.get("meta")):
+                            if send_to_peer(msg["session"], meta=msg.get("meta"), msg_id=msg.get("msg_id")):
                                 PENDING_MESSAGES.remove(msg)
                                 # Update delivery status
                                 for history_msg in MESSAGE_HISTORY:

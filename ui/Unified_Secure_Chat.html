@@ -396,7 +396,7 @@ function add(text, type, msgId, quantum) {
     ['👍','❤️','😂','😮','😢','🔥','💯','🎉'].forEach(emoji => {
       const btn = document.createElement('button');
       btn.textContent = emoji;
-      btn.onclick = (e) => { e.stopPropagation(); addReaction(wrapper, emoji, text); picker.remove(); };
+      btn.onclick = (e) => { e.stopPropagation(); addReaction(wrapper, emoji); picker.remove(); };
       picker.appendChild(btn);
     });
     document.body.appendChild(picker);
@@ -430,12 +430,14 @@ function add(text, type, msgId, quantum) {
   chat.scrollTop = chat.scrollHeight;
 }
 
-async function addReaction(wrapperEl, emoji, msgText) {
+async function addReaction(wrapperEl, emoji) {
+  const msgId = wrapperEl.dataset.msgId;
+  if (!msgId) return;                       // need a shared id to react
   const msgEl = wrapperEl.querySelector('.msg');
   let reactions = msgEl.querySelector('.reactions');
   if (!reactions) { reactions = document.createElement('div'); reactions.className = 'reactions'; msgEl.appendChild(reactions); }
-  await fetch('/add_reaction', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msgText, emoji, user:myName})});
-  await fetch(peerUrl+'/add_reaction', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msgText, emoji, user:myName})}).catch(()=>{});
+  // single POST to our own server; it relays to the peer server-side
+  fetch('/add_reaction', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({msg_id:msgId, emoji, user:myName})}).catch(()=>{});
   updateReactionDisplay(wrapperEl, {[myName]:emoji, [peerName]:reactions.dataset.peerEmoji});
   let burst = msgEl.querySelector('.burst-container');
   if (!burst) { burst = document.createElement('div'); burst.className = 'burst-container'; msgEl.appendChild(burst); }
@@ -463,9 +465,8 @@ function updateReactionDisplay(wrapperEl, reactionsObj) {
     if (user === myName) {
       item.style.cursor = 'pointer';
       item.onclick = async () => {
-        const msgText = wrapperEl.dataset.msgText;
-        await fetch('/remove_reaction', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msgText, user:myName})});
-        await fetch(peerUrl+'/remove_reaction', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({message:msgText, user:myName})}).catch(()=>{});
+        const msgId = wrapperEl.dataset.msgId;
+        fetch('/remove_reaction', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({msg_id:msgId, user:myName})}).catch(()=>{});
         delete reactionsObj[myName];
         updateReactionDisplay(wrapperEl, reactionsObj);
       };
@@ -566,14 +567,14 @@ async function receiveMsg() {
             recvOverlay.style.display = 'none';
             recvOverlay.style.animation = '';
             appEl.style.filter = '';
-            add(j.message, 'recv', null, j.quantum);
+            add(j.message, 'recv', j.msg_id, j.quantum);
             showQuantum(j.quantum);
             statusBox.textContent = '\u2713 Message received';
             receiveMsg();
           }, 500);
         }, 2400);
       } else {
-        add(j.message, 'recv', null, j.quantum);
+        add(j.message, 'recv', j.msg_id, j.quantum);
         showQuantum(j.quantum);
         statusBox.textContent = '\u2713 Message received';
         receiveMsg();
@@ -604,23 +605,17 @@ function checkDeliveryStatus() {
 setInterval(checkDeliveryStatus, 3000);
 
 function syncReactions() {
-  if (!peerUrl) return;
   fetch('/get_reactions')
     .then(r => r.json())
     .then(data => {
-      const allMsgs = new Set();
-      document.querySelectorAll('.msg-wrapper[data-msg-text]').forEach(w => allMsgs.add(w.dataset.msgText));
       const reacted = new Set();
       data.reactions.forEach(item => {
-        reacted.add(item.text);
-        const w = Array.from(document.querySelectorAll('.msg-wrapper')).find(w => w.dataset.msgText === item.text);
+        reacted.add(item.msg_id);
+        const w = document.querySelector('.msg-wrapper[data-msg-id="' + item.msg_id + '"]');
         if (w) updateReactionDisplay(w, item.reactions);
       });
-      allMsgs.forEach(t => {
-        if (!reacted.has(t)) {
-          const w = Array.from(document.querySelectorAll('.msg-wrapper')).find(w => w.dataset.msgText === t);
-          if (w) updateReactionDisplay(w, {});
-        }
+      document.querySelectorAll('.msg-wrapper[data-msg-id]').forEach(w => {
+        if (!reacted.has(w.dataset.msgId) && w.querySelector('.reactions')) updateReactionDisplay(w, {});
       });
     })
     .catch(() => {});
