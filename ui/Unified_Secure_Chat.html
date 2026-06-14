@@ -185,10 +185,26 @@ const muteBtn = document.getElementById('mute-btn');
 const ICON_ON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
 const ICON_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg>';
 function syncMute(){ muteBtn.innerHTML = loaderVideo.muted ? ICON_OFF : ICON_ON; }
+
+// Position the button dynamically over the video's bottom-right watermark using
+// object-fit:cover math, so it stays on the logo at ANY window size / fullscreen.
+const WM_FX = 0.957, WM_FY = 0.923;  // watermark location as a fraction of the video frame
+function placeMuteBtn(){
+  const vw = loaderVideo.videoWidth, vh = loaderVideo.videoHeight, cw = loaderVideo.clientWidth, ch = loaderVideo.clientHeight;
+  if (!vw || !vh || !cw || !ch) return;
+  const scale = Math.max(cw/vw, ch/vh), dw = vw*scale, dh = vh*scale;   // object-fit: cover
+  const sx = (cw-dw)/2 + WM_FX*dw, sy = (ch-dh)/2 + WM_FY*dh, s = muteBtn.offsetWidth || 66;
+  muteBtn.style.left = Math.min(Math.max(sx-s/2,4), cw-s-4) + 'px';
+  muteBtn.style.top  = Math.min(Math.max(sy-s/2,4), ch-s-4) + 'px';
+  muteBtn.style.right = 'auto'; muteBtn.style.bottom = 'auto';
+}
+loaderVideo.addEventListener('loadedmetadata', placeMuteBtn);
+window.addEventListener('resize', placeMuteBtn);
+
 loaderVideo.muted = false; loaderVideo.volume = 1;
 loaderVideo.play().then(syncMute).catch(() => { loaderVideo.muted = true; loaderVideo.play().catch(()=>{}); syncMute(); });
 muteBtn.addEventListener('click', e => { e.stopPropagation(); loaderVideo.muted = !loaderVideo.muted; if (!loaderVideo.muted) { loaderVideo.volume = 1; loaderVideo.play().catch(()=>{}); } syncMute(); });
-syncMute();
+syncMute(); placeMuteBtn();
 
 function startReceiving() {
   if (receiverInterval) return;
