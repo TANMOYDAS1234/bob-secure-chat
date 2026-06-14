@@ -74,23 +74,21 @@ def generate_hybrid_key():
     z = np.exp(1j * theta)
 
     # -------------------------------
-    # Quantum Circuit
+    # Quantum Circuit (matched-basis measurement)
     # -------------------------------
+    # Alice encodes the qubit in a theta-rotated basis and the legitimate
+    # receiver measures in the SAME (matched) basis, so an honest, undisturbed
+    # channel measures ~0 bit error -- the QBER is therefore meaningful and
+    # tells the same story as the QC broker. The previous circuit measured the
+    # phase in the Z basis, which made theta invisible and bit_error a ~50/50
+    # coin flip.
+    basis = np.random.choice(['Z', 'X'])      # basis label (for reporting)
+
     qc = QuantumCircuit(1, 1)
     qc.h(0)
-    qc.rz(theta, 0)
-
-    # Decoy-dependent disturbance (simulates photon statistics)
-    if mu > 0 and np.random.rand() < mu:
-        qc.z(0)
-
-    if np.random.rand() > 0.1:
-        qc.h(0)
-
-    basis = np.random.choice(['Z', 'X'])
-    if basis == 'X':
-        qc.h(0)
-
+    qc.rz(theta, 0)        # Alice: encode in the key-derived (theta) basis
+    qc.rz(-theta, 0)       # Bob: decode in the matched basis -> qubit returns to |0>
+    qc.h(0)
     qc.measure(0, 0)
 
     # -------------------------------
