@@ -14,6 +14,9 @@ body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:hsl(var(-
 #loader{position:fixed;inset:0;background:#000;z-index:9999;display:flex;align-items:center;justify-content:center;transition:opacity .8s ease}
 #loader.hide{opacity:0;pointer-events:none}
 #loader-video{width:100%;height:100%;object-fit:cover;position:absolute;inset:0}
+#mute-btn{position:absolute;right:2.5%;bottom:5%;z-index:10000;width:50px;height:50px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.25);color:#fff;cursor:pointer;backdrop-filter:blur(4px);transition:background .2s ease,transform .2s ease}
+#mute-btn:hover{background:rgba(0,0,0,0.72);transform:scale(1.07)}
+#mute-btn svg{width:22px;height:22px}
 #bg-canvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;display:none;filter:blur(18px) brightness(0.45);transform:scale(1.05)}
 #recv-overlay{position:fixed;inset:0;z-index:10;display:none;align-items:center;justify-content:center;flex-direction:column;gap:28px;background:rgba(0,0,0,0.55);backdrop-filter:blur(8px)}
 #recv-ring{width:120px;height:120px;border-radius:50%;border:3px solid rgba(168,85,247,0.3);display:flex;align-items:center;justify-content:center;position:relative;animation:ringPulse 1.2s ease-in-out infinite}
@@ -129,6 +132,7 @@ button.loading{pointer-events:none;opacity:0.7}
 
 <div id="loader">
 <video id="loader-video" src="/video" playsinline preload="auto" disablepictureinpicture controlslist="nodownload nofullscreen"></video>
+<button id="mute-btn" type="button" aria-label="Mute or unmute"></button>
 </div>
 
 <script>
@@ -174,23 +178,17 @@ loaderVideo.addEventListener('error', () => {
   }, 500);
 });
 
-// Try to autoplay WITH sound. Browsers usually block autoplay-with-audio until
-// the user interacts, so if it's rejected we start muted and unmute on the very
-// first user gesture anywhere — no button needed.
-loaderVideo.muted = false;
-loaderVideo.volume = 1;
-(function autoplayWithSound(){
-  const p = loaderVideo.play();
-  if (p && p.catch) {
-    p.catch(() => {
-      loaderVideo.muted = true;
-      loaderVideo.play().catch(()=>{});
-      const evs = ['pointerdown','keydown','touchstart','click'];
-      const unmute = () => { loaderVideo.muted = false; loaderVideo.volume = 1; evs.forEach(ev=>window.removeEventListener(ev,unmute)); };
-      evs.forEach(ev => window.addEventListener(ev, unmute));
-    });
-  }
-})();
+// Loader sound control. Autoplay-with-sound is blocked by browsers until the
+// user interacts, so we try unmuted and fall back to muted; the speaker button
+// (bottom-right, also covering the corner watermark) toggles sound on/off.
+const muteBtn = document.getElementById('mute-btn');
+const ICON_ON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>';
+const ICON_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><line x1="22" x2="16" y1="9" y2="15"/><line x1="16" x2="22" y1="9" y2="15"/></svg>';
+function syncMute(){ muteBtn.innerHTML = loaderVideo.muted ? ICON_OFF : ICON_ON; }
+loaderVideo.muted = false; loaderVideo.volume = 1;
+loaderVideo.play().then(syncMute).catch(() => { loaderVideo.muted = true; loaderVideo.play().catch(()=>{}); syncMute(); });
+muteBtn.addEventListener('click', e => { e.stopPropagation(); loaderVideo.muted = !loaderVideo.muted; if (!loaderVideo.muted) { loaderVideo.volume = 1; loaderVideo.play().catch(()=>{}); } syncMute(); });
+syncMute();
 
 function startReceiving() {
   if (receiverInterval) return;
