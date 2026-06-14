@@ -128,7 +128,7 @@ button.loading{pointer-events:none;opacity:0.7}
 </div>
 
 <div id="loader">
-<video id="loader-video" src="/video" autoplay muted playsinline disablepictureinpicture controlslist="nodownload nofullscreen"></video>
+<video id="loader-video" src="/video" playsinline preload="auto" disablepictureinpicture controlslist="nodownload nofullscreen"></video>
 </div>
 
 <script>
@@ -150,7 +150,8 @@ const recvOverlay = document.getElementById('recv-overlay');
 const appEl = document.querySelector('.app');
 
 // video ends → capture last frame to canvas → blur it → fade out loader (same as Alice)
-loaderVideo.playbackRate = 1.75;
+// Natural speed so the newly-added audio track is not pitched up / sped up.
+loaderVideo.playbackRate = 1.0;
 
 loaderVideo.addEventListener('ended', () => {
   bgCanvas.width  = loaderVideo.videoWidth  || window.innerWidth;
@@ -172,6 +173,24 @@ loaderVideo.addEventListener('error', () => {
     startReceiving();
   }, 500);
 });
+
+// Try to autoplay WITH sound. Browsers usually block autoplay-with-audio until
+// the user interacts, so if it's rejected we start muted and unmute on the very
+// first user gesture anywhere — no button needed.
+loaderVideo.muted = false;
+loaderVideo.volume = 1;
+(function autoplayWithSound(){
+  const p = loaderVideo.play();
+  if (p && p.catch) {
+    p.catch(() => {
+      loaderVideo.muted = true;
+      loaderVideo.play().catch(()=>{});
+      const evs = ['pointerdown','keydown','touchstart','click'];
+      const unmute = () => { loaderVideo.muted = false; loaderVideo.volume = 1; evs.forEach(ev=>window.removeEventListener(ev,unmute)); };
+      evs.forEach(ev => window.addEventListener(ev, unmute));
+    });
+  }
+})();
 
 function startReceiving() {
   if (receiverInterval) return;
