@@ -4,10 +4,24 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Secure Chat Terminal</title>
+<script>try{if(localStorage.getItem('theme')==='light')document.documentElement.classList.add('light');}catch(e){}</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700&display=swap" rel="stylesheet">
 <style>
 :root{--background:217 32% 8%;--foreground:210 40% 98%;--card:217 32% 14%;--card-foreground:210 40% 98%;--primary:210 100% 60%;--primary-foreground:217 32% 8%;--secondary:217 32% 20%;--secondary-foreground:210 40% 98%;--muted:217 32% 20%;--muted-foreground:215 20.2% 60%;--border:217 32% 20%;--ring:210 100% 60%;--radius:0.5rem}
+/* ── light theme ── */
+html.light{--background:210 40% 96%;--foreground:222 40% 14%;--card:0 0% 100%;--card-foreground:222 40% 14%;--primary:210 100% 48%;--primary-foreground:0 0% 100%;--secondary:214 32% 93%;--secondary-foreground:222 40% 14%;--muted:214 32% 92%;--muted-foreground:215 16% 40%;--border:214 30% 85%;--ring:210 100% 48%}
+html.light .app{box-shadow:0 16px 50px rgba(40,60,100,0.14)}
+html.light .reaction-btn svg{color:hsl(var(--muted-foreground));stroke:hsl(var(--muted-foreground))}
+html.light .reaction-item{background:rgba(0,0,0,0.05);border-color:rgba(0,0,0,0.12)}
+html.light .qp-bar{background:rgba(0,0,0,0.08)}
+html.light .qp-dm div{border-color:rgba(0,0,0,0.08)}
+html.light .qp-close:hover{color:hsl(var(--foreground))}
+html.light .reaction-picker{box-shadow:0 8px 32px rgba(0,0,0,0.18),0 0 0 1px rgba(0,0,0,0.05)}
+/* theme toggle button (both themes) */
+#theme-btn{background:hsl(var(--secondary));border:1px solid hsl(var(--border));color:hsl(var(--foreground));width:38px;height:38px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;transition:all .2s;flex-shrink:0}
+#theme-btn:hover{border-color:hsl(var(--primary));color:hsl(var(--primary));transform:translateY(-1px)}
+#theme-btn svg{width:18px;height:18px}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:hsl(var(--background));color:hsl(var(--foreground));display:flex;align-items:center;justify-content:center;min-height:100dvh;padding:20px;overflow:hidden}
 @media(max-width:600px){body{padding:0;align-items:stretch}}
@@ -156,7 +170,10 @@ button.loading{pointer-events:none;opacity:0.7}
 <p id="role">Bidirectional Mode • Active</p>
 </div>
 </div>
+<div style="display:flex;gap:10px;align-items:center">
+<button id="theme-btn" type="button" title="Toggle light / dark" onclick="toggleTheme()" aria-label="Toggle theme"></button>
 <button id="qbtn" type="button" onclick="toggleQPanel()">🛡 Quantum</button>
+</div>
 </div>
 <div id="chat" class="chat"></div>
 <div class="status-bar" id="status">Ready to communicate</div>
@@ -203,7 +220,7 @@ const appEl = document.querySelector('.app');
 // video ends → capture last frame to canvas → blur it → fade out loader (same as Alice)
 // Fast lead-in: speed up the scene BEFORE he opens the laptop (~0-5.8s), then
 // drop to natural speed for the laptop/typing close-up so its audio plays right.
-loaderVideo.playbackRate = 2.0;
+loaderVideo.playbackRate = 2.1;
 (function watchRate(){
   if (loaderVideo.currentTime >= 5.8) { loaderVideo.playbackRate = 1.0; return; }
   requestAnimationFrame(watchRate);
@@ -291,6 +308,17 @@ setInterval(checkPeerStatus, 2000);
 
 // ===== Quantum Channel Inspector =====
 let lastQuantum=null;
+// ===== Theme (dark default, light optional, persisted) =====
+const ICON_SUN='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+const ICON_MOON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+function applyThemeIcon(){ const b=document.getElementById('theme-btn'); if(b) b.innerHTML=document.documentElement.classList.contains('light')?ICON_MOON:ICON_SUN; }
+function toggleTheme(){
+  const light=document.documentElement.classList.toggle('light');
+  try{ localStorage.setItem('theme', light?'light':'dark'); }catch(e){}
+  applyThemeIcon();
+  if(typeof qPanelOpen==='function' && qPanelOpen() && lastQuantum) renderInspector(lastQuantum);
+}
+applyThemeIcon();
 function qPanelOpen(){ return document.getElementById('qpanel').classList.contains('open'); }
 function toggleQPanel(){ const p=document.getElementById('qpanel'); p.classList.toggle('open'); if(p.classList.contains('open')) renderInspector(lastQuantum); }
 function openInspector(q){ lastQuantum=q||lastQuantum; renderInspector(lastQuantum); document.getElementById('qpanel').classList.add('open'); }
@@ -353,18 +381,19 @@ function renderInspector(q){
 function drawBloch(c,theta){
     const ctx=c.getContext('2d'), w=c.width, h=c.height; ctx.clearRect(0,0,w,h);
     const cx=w/2, cy=h/2, R=Math.min(w,h)/2-20;
+    const ink=document.documentElement.classList.contains('light')?'30,41,59':'255,255,255';
     ctx.lineWidth=1.2;
-    ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.beginPath(); ctx.arc(cx,cy,R,0,2*Math.PI); ctx.stroke();
-    ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.beginPath(); ctx.ellipse(cx,cy,R,R*0.32,0,0,2*Math.PI); ctx.stroke();
-    ctx.strokeStyle='rgba(255,255,255,0.10)'; ctx.beginPath(); ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy); ctx.stroke();
-    ctx.fillStyle='rgba(255,255,255,0.5)'; ctx.font='10px Inter,sans-serif'; ctx.textAlign='center';
+    ctx.strokeStyle='rgba('+ink+',0.22)'; ctx.beginPath(); ctx.arc(cx,cy,R,0,2*Math.PI); ctx.stroke();
+    ctx.strokeStyle='rgba('+ink+',0.15)'; ctx.beginPath(); ctx.ellipse(cx,cy,R,R*0.32,0,0,2*Math.PI); ctx.stroke();
+    ctx.strokeStyle='rgba('+ink+',0.10)'; ctx.beginPath(); ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R); ctx.stroke(); ctx.beginPath(); ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy); ctx.stroke();
+    ctx.fillStyle='rgba('+ink+',0.55)'; ctx.font='10px Inter,sans-serif'; ctx.textAlign='center';
     ctx.fillText('|0⟩',cx,cy-R-6); ctx.fillText('|1⟩',cx,cy+R+13);
     const t=(typeof theta==='number')?theta:0;
     const vx=cx+R*Math.cos(t), vy=cy+R*0.32*Math.sin(t);
     const g=ctx.createLinearGradient(cx,cy,vx,vy); g.addColorStop(0,'#3b82f6'); g.addColorStop(1,'#a855f7');
     ctx.strokeStyle=g; ctx.lineWidth=2.6; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(vx,vy); ctx.stroke();
     ctx.fillStyle='#a855f7'; ctx.beginPath(); ctx.arc(vx,vy,5,0,2*Math.PI); ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(cx,cy,2.5,0,2*Math.PI); ctx.fill();
+    ctx.fillStyle='rgba('+ink+',0.85)'; ctx.beginPath(); ctx.arc(cx,cy,2.5,0,2*Math.PI); ctx.fill();
 }
 
 function add(text, type, msgId, quantum) {
