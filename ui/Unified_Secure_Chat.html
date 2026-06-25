@@ -203,7 +203,7 @@ const appEl = document.querySelector('.app');
 // video ends → capture last frame to canvas → blur it → fade out loader (same as Alice)
 // Fast lead-in: speed up the scene BEFORE he opens the laptop (~0-5.8s), then
 // drop to natural speed for the laptop/typing close-up so its audio plays right.
-loaderVideo.playbackRate = 3.0;
+loaderVideo.playbackRate = 2.2;
 (function watchRate(){
   if (loaderVideo.currentTime >= 5.8) { loaderVideo.playbackRate = 1.0; return; }
   requestAnimationFrame(watchRate);
